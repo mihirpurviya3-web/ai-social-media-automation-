@@ -1,0 +1,633 @@
+{
+  "name": "Social Media Auto - Phase 1: Trending + Content",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "id": "1cf066d7-cb5b-47b4-9438-a103448d9641",
+      "name": "Every 15 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://trends.google.com/trending/rss?geo=IN",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "43f75208-ee9a-44cf-8f43-64004655f5e9",
+      "name": "Fetch Google Trends",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        224,
+        0
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "numberInputs": 3
+      },
+      "id": "9165ed5a-c9bf-4c22-b1f7-887f46aada07",
+      "name": "Merge All Trending Data",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        448,
+        176
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://www.reddit.com/r/india/hot.json?limit=10",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "TrendingBot/1.0"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "857fc878-aaa0-4089-84c2-f85f48bd984a",
+      "name": "Fetch Reddit Trending",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        224,
+        192
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "url": "https://www.googleapis.com/youtube/v3/videos",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "part",
+              "value": "snippet,statistics"
+            },
+            {
+              "name": "chart",
+              "value": "mostPopular"
+            },
+            {
+              "name": "regionCode",
+              "value": "IN"
+            },
+            {
+              "name": "maxResults",
+              "value": "10"
+            },
+            {
+              "name": "key",
+              "value": "YOUR_YOUTUBE_API_KEY"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b9739764-8e21-48f1-b60b-2b3d68551430",
+      "name": "Fetch YouTube Trending",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        224,
+        384
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst allItems = $input.all();\nconst topics = [];\n\nfor (const item of allItems) {\n  const json = item.json;\n  \n  if (json.data && json.data.children) {\n    for (const post of json.data.children) {\n      if (post.data && post.data.score > 1000) {\n        topics.push({ source: 'reddit', title: post.data.title, score: post.data.score, comments: post.data.num_comments });\n      }\n    }\n  }\n  \n  if (json.items && Array.isArray(json.items)) {\n    for (const video of json.items) {\n      topics.push({ source: 'youtube', title: video.snippet ? video.snippet.title : 'Unknown', viewCount: video.statistics ? parseInt(video.statistics.viewCount || 0) : 0 });\n    }\n  }\n  \n  if (typeof json.data === 'string' && json.data.includes('<title>')) {\n    const matches = json.data.match(/<item>.*?<title>(.*?)<\\/title>.*?<\\/item>/gs);\n    if (matches) {\n      for (const match of matches) {\n        const titleMatch = match.match(/<title>(.*?)<\\/title>/);\n        if (titleMatch) {\n          topics.push({ source: 'google_trends', title: titleMatch[1].replace('<![CDATA[', '').replace(']]>', '').trim() });\n        }\n      }\n    }\n  }\n}\n\nconst sorted = topics.sort((a, b) => (b.score || b.viewCount || 0) - (a.score || a.viewCount || 0));\nconst top5 = sorted.slice(0, 5);\n\nif (top5.length === 0) {\n  return [{ json: { topics: [], count: 0, fetchedAt: new Date().toISOString() } }];\n}\n\nreturn [{ json: { topics: top5, count: top5.length, fetchedAt: new Date().toISOString() } }];\n      "
+      },
+      "id": "ad317e63-fed0-4648-a29e-11e7e1845689",
+      "name": "Extract & Clean Topics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.count }}",
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              },
+              "rightValue": 0
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "3e3078d4-629d-420a-8e75-7183fdc6f21b",
+      "name": "Topics Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        896,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ai-prompt",
+              "name": "aiPrompt",
+              "value": "=Trending topics in India right now:\n{{ $json.topics.map((t, i) => (i+1) + \". [\" + t.source.toUpperCase() + \"] \" + t.title + (t.score ? \" (Score: \" + t.score + \")\" : \"\") + (t.viewCount ? \" (Views: \" + t.viewCount + \")\" : \"\")).join(\"\\n\") }}\n\nAnalyze these and create engaging social media content.",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "7cdcc46a-2da3-46c6-8225-d56882d588a2",
+      "name": "Format Topics for AI",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1120,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  try {\n    let rawText = '';\n    \n    // OpenAI response format\n    if (item.json.choices && Array.isArray(item.json.choices)) {\n      rawText = item.json.choices[0].message.content;\n    }\n    // Anthropic response format\n    else if (item.json.content && Array.isArray(item.json.content)) {\n      for (const block of item.json.content) {\n        if (block.text) rawText += block.text;\n      }\n    }\n    else if (item.json.text) {\n      rawText = item.json.text;\n    }\n    \n    const cleanText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();\n    const parsed = JSON.parse(cleanText);\n    results.push({ json: { ...parsed, parsedAt: new Date().toISOString(), status: 'success' } });\n  } catch (e) {\n    results.push({ json: { error: 'Parse failed: ' + e.message, rawResponse: JSON.stringify(item.json).substring(0, 300), status: 'error', parsedAt: new Date().toISOString() } });\n  }\n}\nreturn results;\n"
+      },
+      "id": "c9985ae8-d699-4b78-b598-2bcab813cf94",
+      "name": "Parse AI Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1632,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.status }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "success"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "2059bf31-1c56-4a14-9ca5-f78513028d1d",
+      "name": "Parse Successful?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1792,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "topic",
+              "name": "topic",
+              "value": "={{ $json.selected_topic }}",
+              "type": "string"
+            },
+            {
+              "id": "insta",
+              "name": "instagram_caption",
+              "value": "={{ $json.instagram_caption }}",
+              "type": "string"
+            },
+            {
+              "id": "twitter",
+              "name": "twitter_post",
+              "value": "={{ $json.twitter_post }}",
+              "type": "string"
+            },
+            {
+              "id": "linkedin",
+              "name": "linkedin_post",
+              "value": "={{ $json.linkedin_post }}",
+              "type": "string"
+            },
+            {
+              "id": "facebook",
+              "name": "facebook_post",
+              "value": "={{ $json.facebook_post }}",
+              "type": "string"
+            },
+            {
+              "id": "img-prompt",
+              "name": "image_prompt",
+              "value": "={{ $json.image_prompt }}",
+              "type": "string"
+            },
+            {
+              "id": "best-time",
+              "name": "best_post_time",
+              "value": "={{ $json.best_post_time }}",
+              "type": "string"
+            },
+            {
+              "id": "audience",
+              "name": "target_audience",
+              "value": "={{ $json.target_audience }}",
+              "type": "string"
+            },
+            {
+              "id": "status",
+              "name": "status",
+              "value": "CONTENT_READY",
+              "type": "string"
+            },
+            {
+              "id": "created",
+              "name": "createdAt",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ea091040-069f-47a5-8486-72d4dd5c0da8",
+      "name": "Content Ready",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2016,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "err-status",
+              "name": "status",
+              "value": "ERROR",
+              "type": "string"
+            },
+            {
+              "id": "err-time",
+              "name": "errorAt",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "833f3ed4-175e-4d94-9967-082a763e2551",
+      "name": "Log Error",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2016,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "skip",
+              "name": "status",
+              "value": "SKIPPED - No trending topics",
+              "type": "string"
+            },
+            {
+              "id": "skip-time",
+              "name": "skippedAt",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "85e39365-358b-4063-8e50-5dad8fe74c8f",
+      "name": "No Topics Found",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1120,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Phase 1: Trending Tracker\n\nHar 15 min mein 3 sources se data:\n- Google Trends (India)\n- Reddit r/india\n- YouTube Trending IN\n\nTop 5 topics select hote hain.",
+        "height": 200,
+        "width": 300
+      },
+      "id": "55a5bf92-9acd-43a2-a8ed-af5334d25b85",
+      "name": "Sticky Note faac98e5",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -48,
+        -48
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Claude AI Content Generator\n\n**Setup Steps:**\n1. \"Anthropic API\" credential add karo\n2. YouTube API key URL mein replace karo\n\nOutput: Sab platforms ke liye ready content!",
+        "height": 200,
+        "width": 300
+      },
+      "id": "59915112-f960-4ed4-af4b-2bc330c73b9d",
+      "name": "Sticky Note 91dafe32",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -48,
+        -48
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Content Ready!\n\nYahan se Phase 2 connect hoga:\n- Image Generation (DALL-E)\n- Video Creation (Runway ML)\n- Platform Posting",
+        "height": 200,
+        "width": 300
+      },
+      "id": "1a555d13-f728-42eb-a547-312c245cab1d",
+      "name": "Sticky Note b888b65d",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -48,
+        -48
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer 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"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "gpt-4o-mini"
+            },
+            {
+              "name": "max_tokens",
+              "value": "1024"
+            },
+            {
+              "name": "messages",
+              "value": "={{ [{\"role\": \"system\", \"content\": \"You are a social media content expert for India. Given trending topics, respond ONLY with a valid JSON object. No markdown, no backticks, no explanation. Return exactly: {\\\"selected_topic\\\": \\\"topic name\\\", \\\"why_trending\\\": \\\"short reason\\\", \\\"instagram_caption\\\": \\\"caption with hashtags\\\", \\\"twitter_post\\\": \\\"tweet under 280 chars\\\", \\\"linkedin_post\\\": \\\"professional 2-3 lines\\\", \\\"facebook_post\\\": \\\"conversational post\\\", \\\"image_prompt\\\": \\\"detailed image description\\\", \\\"best_post_time\\\": \\\"HH:MM\\\", \\\"target_audience\\\": \\\"audience type\\\"}\"}, {\"role\": \"user\", \"content\": $json.aiPrompt}] }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a31e548b-3425-4f45-981b-ec92dd76a1de",
+      "name": "Claude AI - Analyze & Generate",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1344,
+        96
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Every 15 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Fetch Google Trends",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Reddit Trending",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch YouTube Trending",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Google Trends": {
+      "main": [
+        [
+          {
+            "node": "Merge All Trending Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge All Trending Data": {
+      "main": [
+        [
+          {
+            "node": "Extract & Clean Topics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Reddit Trending": {
+      "main": [
+        [
+          {
+            "node": "Merge All Trending Data",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Fetch YouTube Trending": {
+      "main": [
+        [
+          {
+            "node": "Merge All Trending Data",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Extract & Clean Topics": {
+      "main": [
+        [
+          {
+            "node": "Topics Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Topics Found?": {
+      "main": [
+        [
+          {
+            "node": "Format Topics for AI",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Topics Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Response": {
+      "main": [
+        [
+          {
+            "node": "Parse Successful?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Successful?": {
+      "main": [
+        [
+          {
+            "node": "Content Ready",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Topics for AI": {
+      "main": [
+        [
+          {
+            "node": "Claude AI - Analyze & Generate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude AI - Analyze & Generate": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "3a78c6b9-6297-4f86-a111-d056f8f19c6d",
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp",
+    "templateCredsSetupCompleted": true,
+    "instanceId": "2190fce6f2f5f4c042dc2ee62d470c51cfb5dea8085ef7307831cb9910f6be73"
+  },
+  "nodeGroups": [],
+  "id": "EOvOz9Mv0K9GEoSX",
+  "tags": []
+}
